@@ -184,3 +184,8 @@ v=-\frac{d}{2r}\alpha_4-\theta_a\cos\!\left(\frac{3\pi}{4}-\phi_a\right)
 ## 代码实现
 
 代码实现分为Python版本和C++版本，两个版本的功能和接口保持一致，均提供了关节空间到电机空间的转换函数和电机空间到关节空间的转换函数。用户可以根据需要选择使用Python版本或C++版本进行调用。具体代码实现请参见项目中的`src`目录下的相应文件。
+
+注意：
+所有解析公式都定义在 ideal motor ordering 下；
+所有面向硬件接口的输出都在 real motor ordering 下；
+direction sign 作用于 real motor ordering。
