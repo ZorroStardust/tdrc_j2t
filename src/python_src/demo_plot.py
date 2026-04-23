@@ -51,6 +51,17 @@ THETA_C_MAX_DEG = 90.0
 
 UPDATE_MS = 50
 
+# Mapping: ideal motor index -> real motor index.
+# Example for swapping physical motor 1/2 wiring:
+# {1: 2, 2: 1, 3: 3, 4: 4}
+MOTOR_INDEX_MAP = {1: 2, 2: 1, 3: 3, 4: 4}
+
+# Direction map: real motor index -> direction sign.
+# +1 means same as model direction, -1 means opposite z-axis direction.
+# Example: real motor 1/3 are reversed.
+# {1: -1, 2: 1, 3: -1, 4: 1}
+MOTOR_DIRECTION_MAP = {1: -1, 2: -1, 3: -1, 4: -1}
+
 
 # =========================
 # Formatting helpers
@@ -90,6 +101,8 @@ class DemoApp:
             hole_radius=R_HOLE,
             spool_diameter=D_SPOOL,
             cc_sign=-1.0,
+            motor_index_map=MOTOR_INDEX_MAP,
+            motor_direction_map=MOTOR_DIRECTION_MAP,
         )
 
         self._build_ui()
@@ -158,6 +171,8 @@ class DemoApp:
             f"r_hole   = {R_HOLE:.6f} m\n"
             f"d_spool  = {D_SPOOL:.6f} m\n"
             f"K = 2r/d = {self.model.K:.6f}\n\n"
+            f"motor map (ideal->real): {self.model.motor_index_map}\n\n"
+            f"motor dir (real->sign): {self.model.motor_direction_map}\n\n"
             f"theta_a range: [0, {THETA_A_MAX_DEG:.1f}] deg\n"
             f"theta_c range: [0, {THETA_C_MAX_DEG:.1f}] deg"
         )

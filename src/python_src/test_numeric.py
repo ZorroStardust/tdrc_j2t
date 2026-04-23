@@ -196,6 +196,99 @@ class TestTDRCJointMotorModel(unittest.TestCase):
             assert_float_close(self, motor_from_tendon.alpha3, motor_direct.alpha3)
             assert_float_close(self, motor_from_tendon.alpha4, motor_direct.alpha4)
 
+    def test_motor_index_mapping_swap_1_2(self):
+        # Example: physical motor 1/2 are swapped compared with ideal numbering.
+        mapped_model = TDRCJointMotorModel(
+            hole_radius=R_HOLE,
+            spool_diameter=D_SPOOL,
+            cc_sign=-1.0,
+            zero_eps=1e-10,
+            motor_index_map={1: 2, 2: 1, 3: 3, 4: 4},
+        )
+
+        joint = JointSpace(
+            phi_a=0.3,
+            theta_a=0.8,
+            phi_c=-0.4,
+            theta_c=0.5,
+        )
+
+        motor_ideal = self.model.joint_to_motor_angles(joint)
+        motor_real = mapped_model.joint_to_motor_angles(joint)
+
+        # ideal->real mapping: 1->2, 2->1, 3->3, 4->4
+        assert_float_close(self, motor_real.alpha1, motor_ideal.alpha2)
+        assert_float_close(self, motor_real.alpha2, motor_ideal.alpha1)
+        assert_float_close(self, motor_real.alpha3, motor_ideal.alpha3)
+        assert_float_close(self, motor_real.alpha4, motor_ideal.alpha4)
+
+        # inverse should still recover same joint when given real-indexed motor data
+        recovered = mapped_model.motor_angles_to_joint(motor_real)
+        assert_float_close(self, recovered.theta_a, joint.theta_a, tol=1e-9)
+        assert_float_close(self, recovered.theta_c, joint.theta_c, tol=1e-9)
+        assert_angle_close(self, recovered.phi_a, joint.phi_a, tol=1e-9)
+        assert_angle_close(self, recovered.phi_c, joint.phi_c, tol=1e-9)
+
+    def test_invalid_motor_index_mapping_raises(self):
+        with self.assertRaises(ValueError):
+            TDRCJointMotorModel(
+                hole_radius=R_HOLE,
+                spool_diameter=D_SPOOL,
+                motor_index_map={1: 2, 2: 1, 3: 3},
+            )
+
+        with self.assertRaises(ValueError):
+            TDRCJointMotorModel(
+                hole_radius=R_HOLE,
+                spool_diameter=D_SPOOL,
+                motor_index_map={1: 2, 2: 1, 3: 3, 4: 3},
+            )
+
+    def test_motor_direction_mapping_sign_flip(self):
+        mapped_model = TDRCJointMotorModel(
+            hole_radius=R_HOLE,
+            spool_diameter=D_SPOOL,
+            cc_sign=-1.0,
+            zero_eps=1e-10,
+            motor_direction_map={1: -1, 2: 1, 3: -1, 4: 1},
+        )
+
+        joint = JointSpace(
+            phi_a=0.3,
+            theta_a=0.8,
+            phi_c=-0.4,
+            theta_c=0.5,
+        )
+
+        motor_ideal = self.model.joint_to_motor_angles(joint)
+        motor_real = mapped_model.joint_to_motor_angles(joint)
+
+        assert_float_close(self, motor_real.alpha1, -motor_ideal.alpha1)
+        assert_float_close(self, motor_real.alpha2, motor_ideal.alpha2)
+        assert_float_close(self, motor_real.alpha3, -motor_ideal.alpha3)
+        assert_float_close(self, motor_real.alpha4, motor_ideal.alpha4)
+
+        recovered = mapped_model.motor_angles_to_joint(motor_real)
+        assert_float_close(self, recovered.theta_a, joint.theta_a, tol=1e-9)
+        assert_float_close(self, recovered.theta_c, joint.theta_c, tol=1e-9)
+        assert_angle_close(self, recovered.phi_a, joint.phi_a, tol=1e-9)
+        assert_angle_close(self, recovered.phi_c, joint.phi_c, tol=1e-9)
+
+    def test_invalid_motor_direction_mapping_raises(self):
+        with self.assertRaises(ValueError):
+            TDRCJointMotorModel(
+                hole_radius=R_HOLE,
+                spool_diameter=D_SPOOL,
+                motor_direction_map={1: -1, 2: 1, 3: -1},
+            )
+
+        with self.assertRaises(ValueError):
+            TDRCJointMotorModel(
+                hole_radius=R_HOLE,
+                spool_diameter=D_SPOOL,
+                motor_direction_map={1: -1, 2: 1, 3: 0, 4: 1},
+            )
+
     def test_zero_joint_gives_zero_tendon_and_zero_motor(self):
         joint = JointSpace(phi_a=0.0, theta_a=0.0, phi_c=0.0, theta_c=0.0)
 

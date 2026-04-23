@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 # =========================
@@ -158,6 +158,22 @@ class TDRCJointMotorModel:
             u_ax = -theta_a*cos(phi_a), etc.
     zero_eps : float
         Threshold for singular bending angle.
+    motor_index_map : Optional[Dict[int, int]]
+        Mapping from ideal motor index -> real motor index.
+        Both index domains are 1-based and must be a permutation of {1,2,3,4}.
+
+        Example (swap motor 1 and 2 physically):
+            {1: 2, 2: 1, 3: 3, 4: 4}
+
+        Default None means identity mapping.
+    motor_direction_map : Optional[Dict[int, int]]
+        Direction mapping for real motors: {real_index: sign}.
+        sign must be +1 (same direction as model) or -1 (opposite z-axis direction).
+
+        Example (real motor 1 and 3 are reversed):
+            {1: -1, 2: 1, 3: -1, 4: 1}
+
+        Default None means all +1.
     """
 
     def __init__(
@@ -166,6 +182,8 @@ class TDRCJointMotorModel:
         spool_diameter: float,
         cc_sign: float = -1.0,
         zero_eps: float = 1e-10,
+        motor_index_map: Optional[Dict[int, int]] = None,
+        motor_direction_map: Optional[Dict[int, int]] = None,
     ) -> None:
         if hole_radius <= 0.0:
             raise ValueError("hole_radius must be positive.")
@@ -178,6 +196,128 @@ class TDRCJointMotorModel:
         self.d_spool = float(spool_diameter)
         self.cc_sign = float(cc_sign)
         self.zero_eps = float(zero_eps)
+        self._ideal_to_real = self._validate_motor_index_map(motor_index_map)
+        self._real_direction = self._validate_motor_direction_map(motor_direction_map)
+
+        # Precompute inverse map for real -> ideal conversion.
+        self._real_to_ideal = {real_idx: ideal_idx for ideal_idx, real_idx in self._ideal_to_real.items()}
+
+    @staticmethod
+    def _validate_motor_index_map(motor_index_map: Optional[Dict[int, int]]) -> Dict[int, int]:
+        """
+        Validate and normalize ideal->real motor index mapping.
+        """
+        identity = {1: 1, 2: 2, 3: 3, 4: 4}
+        if motor_index_map is None:
+            return identity
+
+        if set(motor_index_map.keys()) != {1, 2, 3, 4}:
+            raise ValueError("motor_index_map keys must be exactly {1,2,3,4}.")
+
+        values = set(motor_index_map.values())
+        if values != {1, 2, 3, 4}:
+            raise ValueError("motor_index_map values must be a permutation of {1,2,3,4}.")
+
+        return {
+            1: int(motor_index_map[1]),
+            2: int(motor_index_map[2]),
+            3: int(motor_index_map[3]),
+            4: int(motor_index_map[4]),
+        }
+
+    @staticmethod
+    def _validate_motor_direction_map(motor_direction_map: Optional[Dict[int, int]]) -> Dict[int, int]:
+        """
+        Validate and normalize real-indexed motor direction signs.
+        """
+        identity = {1: 1, 2: 1, 3: 1, 4: 1}
+        if motor_direction_map is None:
+            return identity
+
+        if set(motor_direction_map.keys()) != {1, 2, 3, 4}:
+            raise ValueError("motor_direction_map keys must be exactly {1,2,3,4}.")
+
+        out: Dict[int, int] = {}
+        for idx in (1, 2, 3, 4):
+            sign = int(motor_direction_map[idx])
+            if sign not in (-1, 1):
+                raise ValueError("motor_direction_map values must be +1 or -1.")
+            out[idx] = sign
+        return out
+
+    @property
+    def motor_index_map(self) -> Dict[int, int]:
+        """Return current ideal->real motor mapping."""
+        return dict(self._ideal_to_real)
+
+    @property
+    def motor_direction_map(self) -> Dict[int, int]:
+        """Return current real-indexed motor direction signs."""
+        return dict(self._real_direction)
+
+    def _permute_motor_ideal_to_real(self, motor_ideal: MotorAngles) -> MotorAngles:
+        """
+        Reorder ideal-indexed motor angles into real-indexed motor angles.
+        """
+        ideal = {
+            1: motor_ideal.alpha1,
+            2: motor_ideal.alpha2,
+            3: motor_ideal.alpha3,
+            4: motor_ideal.alpha4,
+        }
+        real = {
+            self._ideal_to_real[1]: ideal[1],
+            self._ideal_to_real[2]: ideal[2],
+            self._ideal_to_real[3]: ideal[3],
+            self._ideal_to_real[4]: ideal[4],
+        }
+        return MotorAngles(
+            alpha1=real[1],
+            alpha2=real[2],
+            alpha3=real[3],
+            alpha4=real[4],
+        )
+
+    def _permute_motor_real_to_ideal(self, motor_real: MotorAngles) -> MotorAngles:
+        """
+        Reorder real-indexed motor angles into ideal-indexed motor angles.
+        """
+        real = {
+            1: motor_real.alpha1,
+            2: motor_real.alpha2,
+            3: motor_real.alpha3,
+            4: motor_real.alpha4,
+        }
+        ideal = {
+            self._real_to_ideal[1]: real[1],
+            self._real_to_ideal[2]: real[2],
+            self._real_to_ideal[3]: real[3],
+            self._real_to_ideal[4]: real[4],
+        }
+        return MotorAngles(
+            alpha1=ideal[1],
+            alpha2=ideal[2],
+            alpha3=ideal[3],
+            alpha4=ideal[4],
+        )
+
+    def _apply_motor_direction_real(self, motor_real: MotorAngles) -> MotorAngles:
+        """
+        Apply configured real-motor direction signs to real-indexed motor angles.
+        """
+        return MotorAngles(
+            alpha1=self._real_direction[1] * motor_real.alpha1,
+            alpha2=self._real_direction[2] * motor_real.alpha2,
+            alpha3=self._real_direction[3] * motor_real.alpha3,
+            alpha4=self._real_direction[4] * motor_real.alpha4,
+        )
+
+    def _remove_motor_direction_real(self, motor_real: MotorAngles) -> MotorAngles:
+        """
+        Undo configured real-motor direction signs from real-indexed motor angles.
+        """
+        # Inverse of +/-1 sign is itself.
+        return self._apply_motor_direction_real(motor_real)
 
     @property
     def K(self) -> float:
@@ -281,12 +421,14 @@ class TDRCJointMotorModel:
             alpha4 = -2/d * dl6
         """
         scale = -2.0 / self.d_spool
-        return MotorAngles(
+        motor_ideal = MotorAngles(
             alpha1=scale * tendon.dl1,
             alpha2=scale * tendon.dl2,
             alpha3=scale * tendon.dl5,
             alpha4=scale * tendon.dl6,
         )
+        motor_real = self._permute_motor_ideal_to_real(motor_ideal)
+        return self._apply_motor_direction_real(motor_real)
 
     # =====================
     # joint -> motor angles
@@ -311,7 +453,9 @@ class TDRCJointMotorModel:
             theta_c * math.cos(3.0 * math.pi / 4.0 - phi_c)
         )
 
-        return MotorAngles(alpha1=alpha1, alpha2=alpha2, alpha3=alpha3, alpha4=alpha4)
+        motor_ideal = MotorAngles(alpha1=alpha1, alpha2=alpha2, alpha3=alpha3, alpha4=alpha4)
+        motor_real = self._permute_motor_ideal_to_real(motor_ideal)
+        return self._apply_motor_direction_real(motor_real)
 
     # =====================
     # motor angles -> joint
@@ -333,7 +477,14 @@ class TDRCJointMotorModel:
         if abs(K) < self.zero_eps:
             raise ZeroDivisionError("Invalid K: too close to zero.")
 
-        a1, a2, a3, a4 = motor.alpha1, motor.alpha2, motor.alpha3, motor.alpha4
+        motor_real = self._remove_motor_direction_real(motor)
+        motor_ideal = self._permute_motor_real_to_ideal(motor_real)
+        a1, a2, a3, a4 = (
+            motor_ideal.alpha1,
+            motor_ideal.alpha2,
+            motor_ideal.alpha3,
+            motor_ideal.alpha4,
+        )
 
         # proximal segment
         theta_a = math.sqrt(a1 * a1 + a2 * a2) / K
